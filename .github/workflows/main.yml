@@ -38,7 +38,7 @@ jobs:
         run: |
           PROJECT_DIR="$(dirname "$(find extracted -name settings.gradle.kts -print -quit)")"
           test -n "$PROJECT_DIR"
-          gradle -p "$PROJECT_DIR" assembleDebug-Pkotlin.jvm.target.validation.mode=warning
+          gradle -p "$PROJECT_DIR" -Pkotlin.jvm.target.validation.mode=warning assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
