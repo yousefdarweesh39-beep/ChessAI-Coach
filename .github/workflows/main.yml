@@ -4,32 +4,83 @@ name: Build Chess AI Coach APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-
-permissions:
-  contents: read
+    branches:
+      - main
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
 
     steps:
-      - name: Download project files
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
-        uses: 
-          unzip -q ChessAICoach-download.zip -d extracted
-          find extracted -name settings.gradle.kts
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Build APK
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
-          PROJECT_DIR="$(dirname "$(find extracted -name settings.gradle.kts -print -quit)")"
-          test -n "$PROJECT_DIR"
-          gradle -p "$PROJECT_DIR" -Pkotlin.jvm.target.validation.mode=warning assembleDebug
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git zip unzip \
+            autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev
 
-      - name: Upload APK
+      - name: Extract project
+        run: |
+          mkdir -p extracted
+          unzip -q chess_ai_coach_stockfish19_project.zip -d extracted
+          SPEC="$(find extracted -name buildozer.spec -print -quit)"
+          test -n "$SPEC"
+          echo "PROJECT_DIR=$(dirname "$SPEC")" >> "$GITHUB_ENV"
+
+      - name: Download Stockfish 19
+        run: |
+          mkdir -p /tmp/stockfish19
+          curl -fL \
+            "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-android-arm64-universal.tar.gz" \
+            -o /tmp/stockfish19/stockfish.tar.gz
+          tar -xzf /tmp/stockfish19/stockfish.tar.gz -C /tmp/stockfish19
+          ENGINE="$(find /tmp/stockfish19 -type f -name stockfish -print -quit)"
+          test -n "$ENGINE"
+          mkdir -p "$PROJECT_DIR/assets/engine"
+          cp "$ENGINE" "$PROJECT_DIR/assets/engine/stockfish"
+          chmod 755 "$PROJECT_DIR/assets/engine/stockfish"
+
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install buildozer==1.5.0 cython==0.29.36
+
+      - name: Build Android APK
+        shell: bash
+        run: |
+          set -o pipefail
+          cd "$PROJECT_DIR"
+          buildozer -v android debug 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Upload build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ChessAI-Coach-APK
-          path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
+          name: chess-ai-coach-build-log
+          path: build.log
+          if-no-files-found: warn
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chess-ai-coach-apk
+          path: extracted/**/bin/*.apk
+          if-no-files-found: error
